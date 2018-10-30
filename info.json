@@ -1,0 +1,11 @@
+{
+    "name": "RailTools",
+    "version": "0.1.0",
+    "title": "Rail Tools",
+    "author": "Dewin",
+    "contact": "https://github.com/dewiniaid/RailTools",
+    "homepage": "https://github.com/dewiniaid/RailTools",
+    "factorio_version": "0.16",
+    "dependencies": ["base >= 0.16"],
+    "description": "WIP"
+}
