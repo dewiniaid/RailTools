@@ -1,14 +1,7 @@
---
--- Created by IntelliJ IDEA.
--- User: Daniel
--- Date: 10/26/2018
--- Time: 10:45 AM
--- To change this template use File | Settings | File Templates.
---
 require('util')
 
 
-local sqrt2 = 1.5  -- math.sqrt(2)
+local sqrt2 = math.sqrt(2)
 
 
 -- Defines we use a lot, so abbreviate and reference them.
@@ -34,7 +27,6 @@ local _rotations = {
 
 local function each_rotation()
     local i = 0
-    local t
     return function()
         i = i + 1
         if _rotations[i] then return unpack(_rotations[i]) end
@@ -138,15 +130,14 @@ local librail = {
                 length = 2,
                 signals = {
                     [rd.front] = {
-                        {x=1.5, y= 0.5, d=dir.south, stops=-1, starts=1},  -- Train stops 1 unit before this rail begins
+                        {x=1.5, y= 0.5, d=dir.south, stops=-1, starts=0},  -- Train stops 1 unit before this rail begins
                         {x=1.5, y=-0.5, d=dir.south, stops=1, starts=2},
                     },
                     [rd.back] = {
-                        {x=-1.5, y=-0.5, d=dir.north, stops=-1, starts=1},
+                        {x=-1.5, y=-0.5, d=dir.north, stops=-1, starts=0},
                         {x=-1.5, y= 0.5, d=dir.north, stops=1, starts=2},
                     },
                 },
-                chirality = false,
             },
             [dir.northeast] = {
                 length = sqrt2,
@@ -154,7 +145,6 @@ local librail = {
                     [rd.front] = {{x=1.5, y=-1.5, d=dir.southeast, stops=-1, starts=1}},
                     [rd.back] = {{x=-0.5, y=0.5, d=dir.northwest, stops=0, starts=1}},
                 },
-                chirality = false,
             }
         },
         ["curved-rail"] = {
@@ -162,29 +152,27 @@ local librail = {
                 length = 8,
                 signals = {
                     [rd.front] = {
-                        {x=-2.5, y=-1.5, d=dir.northwest, stops=-1, starts=1},
+                        {x=-2.5, y=-1.5, d=dir.northwest, stops=-1, starts=0},
                         {x=-0.5, y=3.5, d=dir.north, stops=7, starts=8}
                     },
                     [rd.back] = {
-                        {x=2.5, y=3.5, d=dir.south, stops=-1, starts=1},
+                        {x=2.5, y=3.5, d=dir.south, stops=-1, starts=0},
                         {x=-0.5, y=-3.5, d=dir.southeast, stops=7, starts=8}
                     },
                 },
-                chirality = false,
             },
             [dir.northeast] = {
                 length = 8,
                 signals = {
                     [rd.front] = {
-                        {x=0.5, y=-3.5, d=dir.northeast, stops=-1, starts=1},
+                        {x=0.5, y=-3.5, d=dir.northeast, stops=-1, starts=0},
                         {x=-2.5, y=3.5, d=dir.north, stops=7, starts=8},
                     },
                     [rd.back] = {
-                        {x=0.5, y=3.5, d=dir.south, stops=-1, starts=1},
+                        {x=0.5, y=3.5, d=dir.south, stops=-1, starts=0},
                         {x=2.5, y=-1.5, d=dir.southwest, stops=7, starts=8},
                     },
                 },
-                chirality = false,
             }
         }
     },
@@ -204,34 +192,47 @@ for _, rail_direction in pairs(librail.rail_directions) do
 end
 
 
--- Generate a reasonably unique key based on offset x/y/d.  Assumes offsets will never be bigger than +/- 10 or so.
+--- Generates a unique key for a given offset
+-- Currently assumes offsets will never be bigger than +/- 10 or so, which satisfies the needs of our library.
+-- @param offset The offset to use.  Must be a table with x, y and d elements.
 function librail.offset_to_key(offset)
     -- Offsets are no bigger than 10.  Generate a reasonable key based on them for fast lookups.
     -- They're also always directional...
     return librail.args_to_key(offset.x, offset.y, offset.d)
 end
 
-
+--- Generates a unique key for a given x/y/direction
+-- Currently assumes offsets will never be bigger than +/- 10 or so, which satisfies the needs of our library.
+-- @param x The x coordinate
+-- @param y The y coordinate
+-- @param d The direction.
 function librail.args_to_key(x, y, d)
     -- log("x=" .. x .. "; y=" .. y .. "; d=" .. d .. "; k=" .. x*1000000 + y*1000 + d)
-    return x*1000000 + y*1000 + d
+    return (x+5)*1000000 + (y+5)*1000 + d
 end
 
 
+local _last_rail_data_entity, _last_rail_data_result
+--- Returns the correct member of rail_data based on the provided entity.
+-- The last entity requested is cached to avoid expensive Factorio API lookups later.
 function librail.get_rail_data(entity)
-    return librail.rail_data[entity.type] and librail.rail_data[entity.type][entity.direction] or nil
-end
-
-
--- Add rotations for other opposite signals.
-for source, dest in each_rotation() do
-    librail.opposite_signal_offsets[dest] = rotate_cw(librail.opposite_signal_offsets[source])
+    if entity ~= _last_rail_data_entity then
+        _last_rail_data_entity = entity
+        _last_rail_data_result = librail.rail_data[entity.type] and librail.rail_data[entity.type][entity.direction]
+    end
+    return _last_rail_data_result
 end
 
 
 -- Finish up rail data and generate signal data.
 do
+    -- Add rotations for other opposite signals.
+    for source, dest in each_rotation() do
+        librail.opposite_signal_offsets[dest] = rotate_cw(librail.opposite_signal_offsets[source])
+    end
+
     local t
+    local number_of_chiralities = 100
 
     for entity_type, entity_data in pairs(librail.rail_data) do
         -- Add rotations for directions other than north and northeast.
@@ -239,7 +240,6 @@ do
         for source, dest in each_rotation() do
             t = {
                 length = entity_data[source].length,
-                chirality = entity_data[source].chirality,
                 signals = {}
             }
 
@@ -254,21 +254,22 @@ do
             entity_data[dest] = t
         end
 
-
         -- Second pass: Create the signal map and determine signal search areas.
         for entity_direction, direction_data in pairs(entity_data) do
+            direction_data.chirality = number_of_chiralities
+            number_of_chiralities = number_of_chiralities + 1
             direction_data.signal_map = {}
             for rail_direction, signals in pairs(direction_data.signals) do
-                log("Rail direction: " .. rail_direction)
                 for i=1, #signals do
                     local offset = signals[i]
+                    offset.index = i
 
                     -- Update bounds for direction search.
                     direction_data.bounds = expand_bounds(direction_data.bounds, offset)
 
                     -- Generate a map of where our signals are
                     direction_data.signal_map[librail.offset_to_key(offset)] = {
-                        rail_direction = rail_direction, x = offset.x, y = offset.y, seq = i, d = offset.d,
+                        rail_direction = rail_direction, x = offset.x, y = offset.y, index = i, d = offset.d,
                         stops=offset.stops, starts=offset.starts
                     }
 
@@ -294,14 +295,31 @@ do
             end
         end
     end
-end
 
+    librail.rail_data['straight-rail'][dir.north].chirality = 0
+    librail.rail_data['curved-rail'][dir.south].chirality = 0
+    librail.rail_data['curved-rail'][dir.southwest].chirality = 0
+    librail.rail_data['straight-rail'][dir.southeast].chirality = 0
+
+    librail.rail_data['straight-rail'][dir.east].chirality = 1
+    librail.rail_data['curved-rail'][dir.west].chirality = 1
+    librail.rail_data['curved-rail'][dir.northwest].chirality = 1
+    librail.rail_data['straight-rail'][dir.southwest].chirality = 1
+
+    librail.rail_data['straight-rail'][dir.northeast].chirality = 2
+    librail.rail_data['curved-rail'][dir.southeast].chirality = 2
+
+    librail.rail_data['straight-rail'][dir.northwest].chirality = 3
+    librail.rail_data['curved-rail'][dir.northeast].chirality = 3
+end
 
 --
 -- Library functions
 --
 
--- Find rail(s) that this signal might belong to.
+--- Find attached rails for a specific signal.
+-- Note that a signal may be attached to more than one rail -- i.e. a signal at the base of a Y-junction.
+-- @param The signal entity.
 function librail.find_rail_for_signal(signal)
     local rails = {}
     local ent
@@ -318,28 +336,68 @@ function librail.find_rail_for_signal(signal)
         k = librail.args_to_key(ent.position.x - signal.position.x, ent.position.y - signal.position.y, ent.direction)
         temp = data.rail_map[ent.type][k]
         if temp then
-            table.insert(rails, {
+            rails[#rails + 1] = {
                 entity=ent, direction=temp.d, rail_direction=temp.rail_direction,
                 signal_index = temp.signal_index, signal = temp.signal,
                 rail_data=temp.rail_data,
-            })
+            }
         end
     end
     return rails
 end
 
 
-function librail.sort_signals(a, b)
-    return a.rail_direction < b.rail_direction or (a.rail_direction == b.rail_direction and a.seq < b.seq)
+do
+    local function _sort_signals(a, b)
+        return a.rail_direction < b.rail_direction or (a.rail_direction == b.rail_direction and a.index < b.index)
+    end
+
+    --- Finds signals that belong to a selected in a selected direction.  Signals may belong to more than one rail.
+    -- @param rail Rail entity to use.
+    -- @param rail_direction Direction of travel for signals.
+    -- @param sort True to sort results by direction and then index.
+    -- @param data Optional rail_data table.  If omitted, librail.get_rail_data will be called.
+    function librail.find_signals(rail, rail_direction, sort, data)
+        data = data or librail.get_rail_data(rail)
+        if not data then return end
+        local ent
+        local signals = {}
+        local ents = rail.surface.find_entities_filtered{
+            area=offset_bounds(data.bounds, rail.position),
+            type=librail.signal_entity_types
+        }
+        local k
+        local x, y = rail.position.x, rail.position.y
+        local temp
+
+        for i = 1, #ents do
+            ent = ents[i]
+            k = librail.args_to_key(ent.position.x - x, ent.position.y - y, ent.direction)
+            temp = data.signal_map[k]
+            if temp and (not rail_direction or rail_direction == temp.rail_direction) then
+                signals[#signals + 1] = {entity=ent, rail=rail, rail_direction=temp.rail_direction, starts=temp.starts, stops=temp.stops, index=temp.index}
+            end
+        end
+
+        if sort then
+            table.sort(signals, _sort_signals)
+        end
+        return signals
+    end
 end
 
 
--- Find signals that belong to this rail.  NOTE: Signals may belong to more than one rail.
-function librail.find_signals(rail, rail_direction, sort, data)
+--- Find one signal that belongs to the selected rail.  Signals may belong to more than one rail.
+-- @param rail Rail entity to use.
+-- @param rail_direction Direction of travel for signals.
+-- @param data Optional rail_data table.  If omitted, librail.get_rail_data will be called.
+-- @param cmp If multiple signals are found, cmp is used to determine which one is returned.
+--
+-- If a second rail signals are found, cmp(a, b) is called.  It returns true to keep a, false to keep b.
+function librail.find_signal_with_comparison(rail, rail_direction, data, cmp)
     data = data or librail.get_rail_data(rail)
     if not data then return end
     local ent
-    local signals = {}
     local ents = rail.surface.find_entities_filtered{
         area=offset_bounds(data.bounds, rail.position),
         type=librail.signal_entity_types
@@ -347,29 +405,49 @@ function librail.find_signals(rail, rail_direction, sort, data)
     local k
     local x, y = rail.position.x, rail.position.y
     local temp
-    --log(serpent.block(data.signal_map))
+    local best_signal, this_signal
 
     for i = 1, #ents do
         ent = ents[i]
         k = librail.args_to_key(ent.position.x - x, ent.position.y - y, ent.direction)
-        log("k=" .. k)
         temp = data.signal_map[k]
         if temp and (not rail_direction or rail_direction == temp.rail_direction) then
-            table.insert(signals, {entity=ent, rail=rail, rail_direction=temp.rail_direction, starts=temp.starts, stops=temp.stops, seq=temp.seq})
+            this_signal = {entity=ent, rail=rail, rail_direction=temp.rail_direction, starts=temp.starts, stops=temp.stops, index=temp.index}
+            if not best_signal or cmp(this_signal, best_signal) then
+                best_signal = this_signal
+            end
         end
     end
 
-    if sort then
-        table.sort(signals, librail.sort_signals)
+    return best_signal
+end
+
+
+do
+    local function _first(a, b) return a.index < b.index end
+    local function _last(a, b)  return a.index > b.index end
+    --- Find the first signal that belongs to the selected rail.
+    -- @param rail Rail entity to use.
+    -- @param rail_direction Direction of travel for signals.
+    -- @param data Optional rail_data table.  If omitted, librail.get_rail_data will be called.
+    function librail.find_first_signal(rail, rail_direction, data)
+        return librail.find_signal_with_comparison(rail, rail_direction, data, _first)
     end
-    return signals
+
+
+    --- Find the last signal that belongs to the selected rail.
+    -- @param rail Rail entity to use.
+    -- @param rail_direction Direction of travel for signals.
+    -- @param data Optional rail_data table.  If omitted, librail.get_rail_data will be called.
+    function librail.find_last_signal(rail, rail_direction, data)
+        return librail.find_signal_with_comparison(rail, rail_direction, data, _last)
+    end
 end
 
 
 -- Iterate over connected rails in one or both directions
 function librail.each_connected_rail(entity, direction)
     local t = direction and librail.connected_rail_permutations[direction] or librail.all_connected_rail_permutations
-    --log(serpent.block(t))
     local i, n = 0, #t
     local connected
     local function iterator()
@@ -377,7 +455,6 @@ function librail.each_connected_rail(entity, direction)
             i = i + 1
             connected = entity.get_connected_rail(t[i])
             if connected then
-                log("Connected rail: " .. entity.unit_number .. "->" .. connected.unit_number .. " (" .. serpent.line(t[i]) .. ")")
                 return connected, t[i]
             end
         end
@@ -386,7 +463,10 @@ function librail.each_connected_rail(entity, direction)
 end
 
 
--- Iterate over conecting rails until reaching the end of the tracks -- or a branch.
+--- Iterates over connecting rails until reaching the end of the tracks -- or a branch.
+-- @param rail Starting rail entity.
+-- @param rail_direction Direction to walk.
+-- @returns Iterator function which returns rail_entity, new_direction, distance_travelled for each call.
 function librail.walk_to_branch(rail, rail_direction)
     local length = 0
     local next = rail
@@ -424,11 +504,15 @@ function librail.walk_to_branch(rail, rail_direction)
 end
 
 
--- walk_to_branch, but also terminates on entering branches and crossings.
+--- Iterates over connecting rails until reaching the end of the tracks or any form of junction or crossing.
+-- @param rail Starting rail entity.
+-- @param rail_direction Direction to walk.
+-- @returns Iterator function which returns rail_entity, new_direction, distance_travelled for each call.
 function librail.walk_to_crossing(rail, rail_direction)
     local real_iterator = librail.walk_to_branch(rail, rail_direction)
     local rail, dir, length, prev, revdir, temp
     local args = {type=librail.rail_entity_types}
+
     local function iterator()
         rail, dir, length = real_iterator()
         if not rail then
@@ -451,11 +535,12 @@ function librail.walk_to_crossing(rail, rail_direction)
 end
 
 
--- Returns the opposite rail signal (for bidirectional rail), or nil if their is no such signal
-function librail.opposite_signal(entity)
-    local offset = librail.opposite_signal_offsets[entity.direction]
-    local position = {entity.x + offset.x, entity.y + offset.y}
-    local ents = entity.surface.find_entities_filtered{position=position, type=librail.signal_entity_types }
+--- If this signal has a counterpart on the opposite side and direction of the tracks, returns that signal.
+-- @param signal Rail signal entity.
+function librail.opposite_signal(signal)
+    local offset = librail.opposite_signal_offsets[signal.direction]
+    local position = { signal.x + offset.x, signal.y + offset.y}
+    local ents = signal.surface.find_entities_filtered{ position=position, type=librail.signal_entity_types }
     local ent
     for i = 1, #ents do
         ent = ents[i]
@@ -466,7 +551,238 @@ function librail.opposite_signal(entity)
 end
 
 
+--- Returns the nearest signal from the selected rail entity.
+-- @param rail Rail entity to search.
+-- @param rail_direction Rail direction to travel.
+-- @param signal_direction Signal direction of travel.
+-- @param max_distance Maximum search distance.
+-- @param add_distance Optional amount of distance to add to return result.
+-- @returns signal_data_with_entity, distance
+--
+-- Note: max_distance exists as a sanity check, not a hard limit.  The returned result may slightly exceed max_distance
+-- in some situations.
+function librail.find_nearest_signal(rail, rail_direction, signal_direction, max_distance, add_distance)
+    return librail._find_signal_impl(rail, rail_direction, signal_direction, max_distance, add_distance, true)
+end
 
+
+--- Returns the first signal OF EACH BRANCH starting at the selected rail entity and travelling a set direction.
+-- @param rail Rail entity to search.
+-- @param rail_direction Rail direction to travel.
+-- @param signal_direction Signal direction of travel.
+-- @param max_distance Maximum search distance.
+-- @param add_distance Optional amount of distance to add to return result.
+-- @returns Table of unit_number = {signal_data_with_entity, distance} pairs.
+--
+-- Note: max_distance exists as a sanity check, not a hard limit.  The returned result may slightly exceed max_distance
+-- in some situations.
+function librail.find_signals_in_branch(rail, rail_direction, signal_direction, max_distance, add_distance, found_signals)
+    return librail._find_signal_impl(rail, rail_direction, signal_direction, max_distance, add_distance, false, found_signals)
+end
+
+
+function librail._find_signal_impl(rail, rail_direction, signal_direction, max_distance, add_distance, only_nearest, found_signals)
+    local signals_reversed = rail_direction ~= signal_direction
+    local find_signal = signals_reversed and librail.find_last_signal or librail.find_first_signal
+
+    -- Rails we've already visited: track unit_number and the distance at time of encounter.
+    -- We will revisit these if we encounter them at a shorter distance.
+    -- [direction][unit_number] -> distance
+    local visited = {
+        [rd.front] = {},
+        [rd.back] = {},
+    }
+
+    -- Rails we need to visit on the next pass.  Swaps places with an (empty) frontier each iteration.
+    -- Start with our first rail.
+    local unvisited = {{rail, rail_direction, librail.get_rail_data(rail), add_distance or 0}}   -- same format as frontier
+
+    -- Rails we will visit on this pass.
+    -- Starts empty because it gets swapped with unvisited immediately.
+    local frontier = {}  -- {{rail, direction, data, distance}}
+
+    -- Best signal we've found, and the distance it was at.  Or our other return value.
+    local best_signal, best_distance
+
+    local temp  -- Short term temporary variable to avoid multiple table dereferences/etc.
+    local unit_number
+    local data, distance
+    local next_data, next_direction
+    local signal
+
+    if not only_nearest and not found_signals then found_signals = {} end
+
+    while unvisited[1] do
+        frontier, unvisited = unvisited, frontier
+        for i = 1, #frontier do
+            rail, rail_direction, data, distance = unpack(frontier[i])
+            unit_number = rail.unit_number
+            frontier[i] = nil   -- so frontier is empty for the next loop.
+
+            if best_distance and (best_distance < distance) then
+                goto next_frontier
+            end
+            temp = visited[rail_direction][unit_number]
+            if temp and temp < distance then
+                goto next_frontier
+            end
+            visited[rail_direction][unit_number] = distance
+
+            signal = find_signal(rail, signals_reversed and librail.opposite_direction[rail_direction] or rail_direction)
+            if signal then
+                --temp = distance + ((signals_reversed and (data.length - signal.stops)) or signal.starts)
+
+                if signals_reversed then
+                    -- Going backwards, so concerned with where this signal 'starts'
+                    temp = distance + (data.length - signal.starts)
+                else
+                    -- Going forward, so concerned with where trains stop
+                    temp = distance + signal.stops
+                end
+
+                if only_nearest then
+                    if not best_distance or temp < best_distance then
+                        best_signal = signal
+                        best_distance = temp
+                    end
+                else
+                    unit_number = signal.entity.unit_number
+                    if not found_signals[unit_number] then
+                        found_signals[unit_number] = {signal, temp}
+                    elseif found_signals[unit_number][2] > temp then
+                        found_signals[unit_number][2] = temp
+                    end
+                end
+                -- If we have a signal here, nothing past this point is going to be closer... not this route anyways.
+                goto next_frontier
+            end
+            -- No signals, so connected rails to the next frontier.
+            distance = distance + data.length
+            if distance > max_distance then
+                goto next_frontier
+            end
+            for next_rail in librail.each_connected_rail(rail, rail_direction) do
+                next_data = librail.get_rail_data(next_rail)
+                next_direction = librail.chiral_directions[next_data.chirality == data.chirality][rail_direction]
+                temp = visited[next_direction][next_rail.unit_number]
+                if temp and temp < distance then goto next_frontier end
+                unvisited[#unvisited + 1] = {next_rail, next_direction, next_data, distance}
+            end
+            ::next_frontier::
+        end
+    end
+
+    if only_nearest then
+        return best_signal, best_distance
+    else
+        return found_signals
+    end
+end
+
+
+
+do
+    local _directional_functions = {
+        [true] = {
+            distance_mod = function(rail)
+                return rail.signal.stops
+            end,
+            signal_distance = function(rail, signal) return rail.signal.stops - signal.starts end,
+            is_later_signal = function(a, b)
+                return a > b
+            end,
+            adjust_direction = function(x)
+                return librail.opposite_direction[x]
+            end,
+        },
+        [false] = {
+            distance_mod = function(rail)
+                return rail.rail_data.length - rail.signal.starts
+            end,
+            signal_distance = function(rail, signal) return signal.stops - rail.signal.starts end,
+            is_later_signal = function(a, b)
+                return a < b
+            end,
+            adjust_direction = function(x)
+                return x
+            end,
+        },
+    }
+
+
+    function librail._find_signal_from_signal_impl(signal, backwards, max_distance, nearest_only)
+        max_distance = max_distance or 100
+
+        local rails = librail.find_rail_for_signal(signal)
+        local fn = _directional_functions[backwards]
+        local d, rd, chirality
+        local distance, added_distance, signals
+        local best_distance, best_signal
+        local found_signals
+        local signal
+        if not nearest_only then
+            found_signals = {}
+        end
+
+        for i = 1, #rails do
+            local rail = rails[i]
+            rd, chirality = rail.rail_direction, rail.rail_data.chirality
+            signals = librail.find_signals(rail.entity, rail.rail_direction, false, rail.rail_data)
+            -- Make sure there aren't any other signals on this track, since we start our search on the 'next' track.
+            -- FIXME: This code will break if any rail segment becomes capable of having 3 or more signals in a given direction.
+            -- Fortunately, there are currently no cases where this is true.
+            for j = 1, #signals do
+                signal = signals[j]
+                if fn.is_later_signal(rail.signal_index, signal.index) then
+                    distance = fn.signal_distance(rail, signal)
+                    if nearest_only then
+                        if not best_distance or distance < best_distance then
+                            best_distance = distance
+                            best_signal = signal
+                        end
+                    else
+                        found_signals[signal.unit_number] = {signal, distance}
+                    end
+                    goto next_rail
+                end
+            end
+            added_distance = fn.distance_mod(rail)
+            for next_rail in librail.each_connected_rail(rail.entity, fn.adjust_direction(rd)) do
+                d = librail.chiral_directions[chirality == librail.get_rail_data(next_rail).chirality][rd]
+                if nearest_only then
+                    signal, distance = librail.find_nearest_signal(next_rail, fn.adjust_direction(d), d, max_distance, added_distance)
+                    if distance and (not best_distance or best_distance > distance) then
+                        best_signal, best_distance = signal, distance
+                    end
+                else
+                    librail.find_signals_in_branch(next_rail, fn.adjust_direction(d), d, max_distance, added_distance, found_signals)
+                end
+            end
+            ::next_rail::
+        end
+        if nearest_only then return best_signal, best_distance end
+        return found_signals
+    end
+    function librail.find_nearest_signal_from_signal(signal, backwards, max_distance)
+        return librail._find_signal_from_signal_impl(signal, backwards, max_distance, true)
+    end
+    function librail.find_signals_in_branch_from_signal(signal, backwards, max_distance)
+        return librail._find_signal_from_signal_impl(signal, backwards, max_distance, false)
+    end
+end
+
+do
+    local function _sort_by_distance(a, b) return a[2] < b[2] end
+
+    function librail.sort_found_signals(signals)
+        local result
+        for k, v in pairs(signals) do
+            result[#result + 1] = v
+        end
+        table.sort(result, _sort_by_distance)
+        return result
+    end
+end
 
 
 return librail
