@@ -2,7 +2,7 @@ require('util')
 
 
 local sqrt2 = math.sqrt(2)
-
+local curve_length = 7.7  -- 7.7288196964265417438549920430937
 
 -- Defines we use a lot, so abbreviate and reference them.
 local rd = defines.rail_direction
@@ -36,7 +36,15 @@ end
 
 
 -- Performs a 90 degree rotation of src
-local function rotate_cw(src) return { x=-src.y, y=src.x, d=src.d and (src.d+2)%8 or nil } end
+local function rotate_cw(src)
+    local t = table.deepcopy(src)
+    t.x, t.y = -t.y, t.x
+    if t.d then
+        t.d = (t.d+2)%8
+    end
+    return t
+    --     return { x=-src.y, y=src.x, d=src.d and (src.d+2)%8 or nil }
+end
 
 
 -- Given bounds and a position, extend the bounds to fit the position.
@@ -77,6 +85,13 @@ local librail = {
     signal_entity_types = {"rail-signal", "rail-chain-signal"},
 
     -- Use: chiral_directions[source.chirality == dest.chirality][direction]
+    --[[
+
+    Chirality:
+        Different rail segments have different notions of where their 'front' is.
+        While following a circular section of track clockwise, two adjacent sections of track have the same chirality
+        If their fronts face the same direction -- that is, neither front points at the other track segment.
+    ]]
     chiral_directions = {
         [true] = {
             [rd.front] = rd.front,
@@ -102,12 +117,12 @@ local librail = {
             [entity.direction] = {
                 signals = {
                     [rail_direction] = {
-                        {x=xoffset, y=yoffset, d=direction},s
+                        {x=xoffset, y=yoffset, d=direction},
                         ...
                     }
                 },
                 length = 1,
-                cardinality = false,
+                cardinality = ...,
             },
         }
 
@@ -117,12 +132,30 @@ local librail = {
         encounters signals in the order they appear in in that list.
 
         Offsets are where the signals are located relative to the track.
-
-    Chirality:
-        Different rail segments have different notions of where their 'front' is.
-        While following a circular section of track clockwise, two adjacent sections of track have the same chirality
-        If their fronts face the same direction -- that is, neither front points at the other track segment.
     ]]
+
+    signal_blockers = {
+        [dir.north] = {
+            { name = "curved-rail", x = 2.5, y = 0.5, d = dir.northeast },
+            { name = "curved-rail", x = 2.5, y = -0.5, d = dir.northeast },
+            { name = "curved-rail", x = 2.5, y = -1.5, d = dir.northeast },
+            { name = "curved-rail", x = 2.5, y = -2.5, d = dir.northeast },
+            { name = "curved-rail", x = 2.5, y = -0.5, d = dir.south },
+            { name = "curved-rail", x = 2.5, y =  0.5, d = dir.south },
+            { name = "curved-rail", x = 2.5, y =  1.5, d = dir.south },
+            { name = "curved-rail", x = 2.5, y =  2.5, d = dir.south },
+        },
+        [dir.northeast] = {
+            { name = "curved-rail", x = 0.5, y = 2.5, d = dir.northeast },
+            { name = "curved-rail", x = 1.5, y = 1.5, d = dir.northeast },
+            { name = "curved-rail", x = 2.5, y = 0.5, d = dir.west},
+            { name = "curved-rail", x = 1.5, y = 1.5, d = dir.west},
+            { name = "straight-rail", x = 1.5, y = 1.5, d = dir.north},
+            { name = "straight-rail", x = 1.5, y = 1.5, d = dir.east},
+        }
+    },
+
+    signal_blocker_map = {},
 
     rail_data = {
         ["straight-rail"] = {
@@ -131,7 +164,7 @@ local librail = {
                 signals = {
                     [rd.front] = {
                         {x=1.5, y= 0.5, d=dir.south, stops=-1, starts=0},  -- Train stops 1 unit before this rail begins
-                        {x=1.5, y=-0.5, d=dir.south, stops=1, starts=2},
+                        {x=1.5, y=-0.5, d=dir.south, stops=1, starts=2}
                     },
                     [rd.back] = {
                         {x=-1.5, y=-0.5, d=dir.north, stops=-1, starts=0},
@@ -149,28 +182,28 @@ local librail = {
         },
         ["curved-rail"] = {
             [dir.north] = {
-                length = 8,
+                length = curve_length,
                 signals = {
                     [rd.front] = {
                         {x=-2.5, y=-1.5, d=dir.northwest, stops=-1, starts=0},
-                        {x=-0.5, y=3.5, d=dir.north, stops=7, starts=8}
+                        {x=-0.5, y=3.5, d=dir.north, stops=curve_length-1, starts=curve_length}
                     },
                     [rd.back] = {
                         {x=2.5, y=3.5, d=dir.south, stops=-1, starts=0},
-                        {x=-0.5, y=-3.5, d=dir.southeast, stops=7, starts=8}
+                        {x=-0.5, y=-3.5, d=dir.southeast, stops=curve_length-1, starts=curve_length}
                     },
                 },
             },
             [dir.northeast] = {
-                length = 8,
+                length = curve_length,
                 signals = {
                     [rd.front] = {
                         {x=0.5, y=-3.5, d=dir.northeast, stops=-1, starts=0},
-                        {x=-2.5, y=3.5, d=dir.north, stops=7, starts=8},
+                        {x=-2.5, y=3.5, d=dir.north, stops=curve_length-1, starts=curve_length},
                     },
                     [rd.back] = {
                         {x=0.5, y=3.5, d=dir.south, stops=-1, starts=0},
-                        {x=2.5, y=-1.5, d=dir.southwest, stops=7, starts=8},
+                        {x=2.5, y=-1.5, d=dir.southwest, stops=curve_length-1, starts=curve_length},
                     },
                 },
             }
@@ -229,6 +262,23 @@ do
     -- Add rotations for other opposite signals.
     for source, dest in each_rotation() do
         librail.opposite_signal_offsets[dest] = rotate_cw(librail.opposite_signal_offsets[source])
+        librail.signal_blockers[dest] = {}
+        for i = 1, #librail.signal_blockers[source] do
+            librail.signal_blockers[dest][i] = rotate_cw(librail.signal_blockers[source][i])
+        end
+    end
+
+    -- Generate signal blocker map.
+    local map = librail.signal_blocker_map
+    for dir, blockers in pairs(librail.signal_blockers) do
+        local entities = {}
+        local bounds
+        for _, blocker in pairs(blockers) do
+            if not entities[blocker.name] then entities[blocker.name] = {} end
+            entities[blocker.name][librail.offset_to_key(blocker)] = blocker
+            bounds = expand_bounds(bounds, blocker)
+        end
+        map[dir] = {entities=entities, bounds=bounds}
     end
 
     local t
@@ -317,6 +367,29 @@ end
 -- Library functions
 --
 
+--- Returns whether a signal is blocked by rail placement.
+-- Does NOT check for colliding entities; the caller should do that.
+-- @param surface Signal surface.
+-- @param position x/y coordinates of signal.
+-- @param direction Direction of signal.
+function librail.is_signal_blocked(surface, position, direction)
+    local map = librail.signal_blocker_map[direction]
+    --log(serpent.block(map))
+    local ents = surface.find_entities_filtered{
+        type=librail.rail_entity_types,
+        area=offset_bounds(map.bounds, position)
+    }
+    local ent, k
+    for i = 1, #ents do
+        ent = ents[i]
+        k = librail.args_to_key(ent.position.x - position.x, ent.position.y - position.y, ent.direction)
+        if map.entities[ent.name] and map.entities[ent.name][k] then
+            return true
+        end
+    end
+    return false
+end
+
 --- Find attached rails for a specific signal.
 -- Note that a signal may be attached to more than one rail -- i.e. a signal at the base of a Y-junction.
 -- @param The signal entity.
@@ -357,14 +430,14 @@ do
     -- @param rail_direction Direction of travel for signals.
     -- @param sort True to sort results by direction and then index.
     -- @param data Optional rail_data table.  If omitted, librail.get_rail_data will be called.
-    function librail.find_signals(rail, rail_direction, sort, data)
+    function librail.find_signals(rail, rail_direction, sort, data, signal_types)
         data = data or librail.get_rail_data(rail)
         if not data then return end
         local ent
         local signals = {}
         local ents = rail.surface.find_entities_filtered{
             area=offset_bounds(data.bounds, rail.position),
-            type=librail.signal_entity_types
+            type=(signal_types or librail.signal_entity_types)
         }
         local k
         local x, y = rail.position.x, rail.position.y
@@ -394,13 +467,13 @@ end
 -- @param cmp If multiple signals are found, cmp is used to determine which one is returned.
 --
 -- If a second rail signals are found, cmp(a, b) is called.  It returns true to keep a, false to keep b.
-function librail.find_signal_with_comparison(rail, rail_direction, data, cmp)
+function librail.find_signal_with_comparison(rail, rail_direction, data, cmp, signal_types)
     data = data or librail.get_rail_data(rail)
     if not data then return end
     local ent
     local ents = rail.surface.find_entities_filtered{
         area=offset_bounds(data.bounds, rail.position),
-        type=librail.signal_entity_types
+        type=signal_types or librail.signal_entity_types
     }
     local k
     local x, y = rail.position.x, rail.position.y
@@ -430,8 +503,8 @@ do
     -- @param rail Rail entity to use.
     -- @param rail_direction Direction of travel for signals.
     -- @param data Optional rail_data table.  If omitted, librail.get_rail_data will be called.
-    function librail.find_first_signal(rail, rail_direction, data)
-        return librail.find_signal_with_comparison(rail, rail_direction, data, _first)
+    function librail.find_first_signal(rail, rail_direction, data, signal_types)
+        return librail.find_signal_with_comparison(rail, rail_direction, data, _first, signal_types)
     end
 
 
@@ -440,7 +513,7 @@ do
     -- @param rail_direction Direction of travel for signals.
     -- @param data Optional rail_data table.  If omitted, librail.get_rail_data will be called.
     function librail.find_last_signal(rail, rail_direction, data)
-        return librail.find_signal_with_comparison(rail, rail_direction, data, _last)
+        return librail.find_signal_with_comparison(rail, rail_direction, data, _last, signal_types)
     end
 end
 
@@ -467,21 +540,24 @@ end
 -- @param rail Starting rail entity.
 -- @param rail_direction Direction to walk.
 -- @returns Iterator function which returns rail_entity, new_direction, distance_travelled for each call.
-function librail.walk_to_branch(rail, rail_direction)
-    local length = 0
+function librail.walk_to_branch(rail, rail_direction, length)
+    length = length or 0
     local next = rail
     local temp
     local first_unit_number = rail.unit_number
+    local nextdata = librail.get_rail_data(rail)
     local function iterator()
         if not next then
             return
         end
-        rail, next, temp = next, nil, nil
-        length = length + librail.rail_data[rail.type][rail.direction].length
+        local data = nextdata
+        rail, next, temp, nextdata = next, nil, nil, nil
+        assert(data)
+        length = length + data.length
         for temp in librail.each_connected_rail(rail, rail_direction) do
             if next then    -- More than one connected rail.
                 next = nil
-                return rail, rail_direction, length
+                return rail, rail_direction, length, data
             else
                 next = temp
             end
@@ -492,44 +568,12 @@ function librail.walk_to_branch(rail, rail_direction)
             if next.unit_number == first_unit_number then
                 next = nil
             else
-                rail_direction = librail.chiral_directions[
-                    librail.rail_data[rail.type][rail.direction].chirality == librail.rail_data[next.type][next.direction].chirality
-                ][rail_direction]
+                nextdata = librail.get_rail_data(next)
+                assert(nextdata)
+                rail_direction = librail.chiral_directions[data.chirality == nextdata.chirality][rail_direction]
             end
         end
-        return rail, temp, length
-
-    end
-    return iterator
-end
-
-
---- Iterates over connecting rails until reaching the end of the tracks or any form of junction or crossing.
--- @param rail Starting rail entity.
--- @param rail_direction Direction to walk.
--- @returns Iterator function which returns rail_entity, new_direction, distance_travelled for each call.
-function librail.walk_to_crossing(rail, rail_direction)
-    local real_iterator = librail.walk_to_branch(rail, rail_direction)
-    local rail, dir, length, prev, revdir, temp
-    local args = {type=librail.rail_entity_types}
-
-    local function iterator()
-        rail, dir, length = real_iterator()
-        if not rail then
-            -- Ran out of rail, or there was a forward branch
-            return
-        elseif prev then
-            for temp in librail.each_connected_rail(rail, librail.opposite_direction[dir]) do
-                if temp ~= prev then return end    -- Reverse branch.
-            end
-        end
-        args.area=rail.bounding_box
-        if rail.surface.count_entities_filtered(args) > 1 then return end
-        if rail.secondary_bounding_box then
-            args.area=rail.secondary_bounding_box
-            if rail.surface.count_entities_filtered(args) > 1 then return end
-        end
-        return rail, dir, length
+        return rail, temp, length, data
     end
     return iterator
 end
@@ -539,7 +583,7 @@ end
 -- @param signal Rail signal entity.
 function librail.opposite_signal(signal)
     local offset = librail.opposite_signal_offsets[signal.direction]
-    local position = { signal.x + offset.x, signal.y + offset.y}
+    local position = {x=signal.position.x + offset.x, y=signal.position.y + offset.y}
     local ents = signal.surface.find_entities_filtered{ position=position, type=librail.signal_entity_types }
     local ent
     for i = 1, #ents do
@@ -551,6 +595,9 @@ function librail.opposite_signal(signal)
 end
 
 
+local function _always_true() return true end
+local function _default_halt_function(signal, kept) return kept end
+
 --- Returns the nearest signal from the selected rail entity.
 -- @param rail Rail entity to search.
 -- @param rail_direction Rail direction to travel.
@@ -561,8 +608,8 @@ end
 --
 -- Note: max_distance exists as a sanity check, not a hard limit.  The returned result may slightly exceed max_distance
 -- in some situations.
-function librail.find_nearest_signal(rail, rail_direction, signal_direction, max_distance, add_distance)
-    return librail._find_signal_impl(rail, rail_direction, signal_direction, max_distance, add_distance, true)
+function librail.find_nearest_signal(args)
+    return librail._find_signal_impl(args, true)
 end
 
 
@@ -571,114 +618,151 @@ end
 -- @param rail_direction Rail direction to travel.
 -- @param signal_direction Signal direction of travel.
 -- @param max_distance Maximum search distance.
--- @param add_distance Optional amount of distance to add to return result.
+-- @param added_distance Optional amount of distance to add to return result.
 -- @returns Table of unit_number = {signal_data_with_entity, distance} pairs.
 --
 -- Note: max_distance exists as a sanity check, not a hard limit.  The returned result may slightly exceed max_distance
 -- in some situations.
-function librail.find_signals_in_branch(rail, rail_direction, signal_direction, max_distance, add_distance, found_signals)
-    return librail._find_signal_impl(rail, rail_direction, signal_direction, max_distance, add_distance, false, found_signals)
+function librail.find_signals_in_branch(args)
+    return librail._find_signal_impl(args, false)
 end
 
 
-function librail._find_signal_impl(rail, rail_direction, signal_direction, max_distance, add_distance, only_nearest, found_signals)
-    local signals_reversed = rail_direction ~= signal_direction
-    local find_signal = signals_reversed and librail.find_last_signal or librail.find_first_signal
 
-    -- Rails we've already visited: track unit_number and the distance at time of encounter.
-    -- We will revisit these if we encounter them at a shorter distance.
-    -- [direction][unit_number] -> distance
+-- Visits rails in sequence.  NOTE: May visit a particular rail more than once.
+function librail.visit_rails(args)
+    local rail = args.rail
+    local rail_direction = args.rail_direction
+    local max_distance = args.max_distance
+    local added_distance = args.added_distance or 0
+    local data
+    assert(not args.rail ~= not args.unvisited, 'Cannot specify both rail and unvisited parameters')
+
+    local unvisited = args.unvisited or {{rail, rail_direction, librail.get_rail_data(rail), added_distance, args.extra}}
     local visited = {
         [rd.front] = {},
         [rd.back] = {},
     }
+    local frontier = {}
+    local distance
 
-    -- Rails we need to visit on the next pass.  Swaps places with an (empty) frontier each iteration.
-    -- Start with our first rail.
-    local unvisited = {{rail, rail_direction, librail.get_rail_data(rail), add_distance or 0}}   -- same format as frontier
-
-    -- Rails we will visit on this pass.
-    -- Starts empty because it gets swapped with unvisited immediately.
-    local frontier = {}  -- {{rail, direction, data, distance}}
-
-    -- Best signal we've found, and the distance it was at.  Or our other return value.
-    local best_signal, best_distance
-
-    local temp  -- Short term temporary variable to avoid multiple table dereferences/etc.
+    -- Determines whether a particular rail should be revisited based on its new and previous distances.
+    local revisit = args.revisit or function(a, b) return a < b end
+    local visit = args.visit
+    local extra, handled
+    local temp
     local unit_number
-    local data, distance
-    local next_data, next_direction
-    local signal
-
-    if not only_nearest and not found_signals then found_signals = {} end
+    local next_rail, next_direction, next_data
 
     while unvisited[1] do
         frontier, unvisited = unvisited, frontier
         for i = 1, #frontier do
-            rail, rail_direction, data, distance = unpack(frontier[i])
+            rail, rail_direction, data, distance, extra = unpack(frontier[i])
             unit_number = rail.unit_number
             frontier[i] = nil   -- so frontier is empty for the next loop.
 
-            if best_distance and (best_distance < distance) then
-                goto next_frontier
-            end
             temp = visited[rail_direction][unit_number]
-            if temp and temp < distance then
-                goto next_frontier
-            end
+            if temp and revisit(distance, temp) then goto next_frontier end
             visited[rail_direction][unit_number] = distance
+            handled, extra = visit(rail, rail_direction, data, distance, extra)
 
-            signal = find_signal(rail, signals_reversed and librail.opposite_direction[rail_direction] or rail_direction)
-            if signal then
-                --temp = distance + ((signals_reversed and (data.length - signal.stops)) or signal.starts)
-
-                if signals_reversed then
-                    -- Going backwards, so concerned with where this signal 'starts'
-                    temp = distance + (data.length - signal.starts)
-                else
-                    -- Going forward, so concerned with where trains stop
-                    temp = distance + signal.stops
-                end
-
-                if only_nearest then
-                    if not best_distance or temp < best_distance then
-                        best_signal = signal
-                        best_distance = temp
-                    end
-                else
-                    unit_number = signal.entity.unit_number
-                    if not found_signals[unit_number] then
-                        found_signals[unit_number] = {signal, temp}
-                    elseif found_signals[unit_number][2] > temp then
-                        found_signals[unit_number][2] = temp
-                    end
-                end
-                -- If we have a signal here, nothing past this point is going to be closer... not this route anyways.
-                goto next_frontier
-            end
-            -- No signals, so connected rails to the next frontier.
+            if handled then goto next_frontier end
             distance = distance + data.length
-            if distance > max_distance then
-                goto next_frontier
-            end
+            if distance > max_distance then goto next_frontier end
+
             for next_rail in librail.each_connected_rail(rail, rail_direction) do
                 next_data = librail.get_rail_data(next_rail)
                 next_direction = librail.chiral_directions[next_data.chirality == data.chirality][rail_direction]
                 temp = visited[next_direction][next_rail.unit_number]
                 if temp and temp < distance then goto next_frontier end
-                unvisited[#unvisited + 1] = {next_rail, next_direction, next_data, distance}
+                unvisited[#unvisited + 1] = {next_rail, next_direction, next_data, distance, extra}
             end
             ::next_frontier::
         end
     end
+end
 
-    if only_nearest then
-        return best_signal, best_distance
+
+function librail._find_signal_impl(args, nearest_only)
+    local rail = args.rail
+    local rail_direction = args.rail_direction
+    local signal_direction = args.signal_direction or rail_direction
+    local max_distance = args.max_distance
+    local added_distance = args.added_distance
+    local signal_types = args.signal_types
+
+    local signals_reversed = rail_direction ~= signal_direction
+    local find_signal = signals_reversed and librail.find_last_signal or librail.find_first_signal
+
+    local keep = args.keep or _always_true
+    local halt = args.halt or _default_halt_function
+
+    if keep == true then keep = _always_true end
+    if halt == true then halt = _always_true end
+
+    -- Best signal we've found, and the distance it was at.  Or our other return value.
+    local best_signal, best_distance
+    local found_signals = (not nearest_only) and (args.found_signals or {})
+    args.found_signals = found_signals
+
+    local temp  -- Short term temporary variable to avoid multiple table dereferences/etc.
+    local data, distance
+    local next_data, next_direction
+
+    local function visitor(rail, rail_direction, data, distance)
+        local signal, kept, unit_number
+        -- best_distance will always be nil when not nearest_only, so a second check is not required.
+        if best_distance and (best_distance < distance) then
+            return true
+        end
+
+        signal = find_signal(
+            rail,
+            signals_reversed and librail.opposite_direction[rail_direction] or rail_direction,
+            data,
+            signal_types
+        )
+        if not signal then return false end
+        if signals_reversed then
+            -- Going backwards, so concerned with where this signal 'starts'
+            signal.distance = distance + (data.length - signal.starts)
+        else
+            -- Going forward, so concerned with where trains stop
+            signal.distance = distance + signal.stops
+        end
+
+        kept = keep(signal)
+        if kept then
+            if nearest_only then
+                if not best_distance or signal.distance < best_distance then
+                    best_signal = signal
+                    best_distance = signal.distance
+                end
+            else
+                unit_number = signal.entity.unit_number
+                if not found_signals[unit_number] or found_signals[unit_number].distance > signal.distance then
+                    found_signals[unit_number] = signal
+                end
+            end
+        end
+        -- If we have a signal here, nothing past this point is going to be closer... not this route anyways.
+        return halt(signal, kept)
+    end
+
+    librail.visit_rails({
+        rail = args.rail,
+        rail_direction = args.rail_direction,
+        max_distance = args.max_distance,
+        added_distance = args.added_distance,
+        visit = visitor
+    })
+
+    if nearest_only then
+        return best_signal
     else
         return found_signals
     end
 end
-
 
 
 do
@@ -710,69 +794,94 @@ do
     }
 
 
-    function librail._find_signal_from_signal_impl(signal, backwards, max_distance, nearest_only)
-        max_distance = max_distance or 100
+    function librail._find_signal_from_signal_impl(args, nearest_only)
+        local signal = args.signal
+        local backwards = args.backwards or false
+        local max_distance = args.max_distance
+        local signal_types = args.signal_types
 
         local rails = librail.find_rail_for_signal(signal)
         local fn = _directional_functions[backwards]
         local d, rd, chirality
         local distance, added_distance, signals
         local best_distance, best_signal
-        local found_signals
         local signal
-        if not nearest_only then
-            found_signals = {}
-        end
+        local found_signals = (not nearest_only and {})
+
+        local keep = args.keep or _always_true
+        local halt = args.halt or _default_halt_function
+        local kept
+
+        if keep == true then keep = _always_true end
+        if halt == true then halt = _always_true end
+
+        local args = {
+            max_distance = max_distance or 100,
+            found_signals = found_signals,
+            signal_types = signal_types,
+            halt = halt, keep = keep
+        }
 
         for i = 1, #rails do
             local rail = rails[i]
             rd, chirality = rail.rail_direction, rail.rail_data.chirality
-            signals = librail.find_signals(rail.entity, rail.rail_direction, false, rail.rail_data)
+            signals = librail.find_signals(rail.entity, rail.rail_direction, false, rail.rail_data, signal_types)
             -- Make sure there aren't any other signals on this track, since we start our search on the 'next' track.
             -- FIXME: This code will break if any rail segment becomes capable of having 3 or more signals in a given direction.
             -- Fortunately, there are currently no cases where this is true.
             for j = 1, #signals do
                 signal = signals[j]
                 if fn.is_later_signal(rail.signal_index, signal.index) then
-                    distance = fn.signal_distance(rail, signal)
-                    if nearest_only then
-                        if not best_distance or distance < best_distance then
-                            best_distance = distance
-                            best_signal = signal
+                    signal.distance = fn.signal_distance(rail, signal)
+                    kept = keep(signal)
+                    if kept then
+                        if nearest_only then
+                            if not best_distance or distance < best_distance then
+                                best_distance = distance
+                                best_signal = signal
+                            end
+                        else
+                            found_signals[signal.entity.unit_number] = signal
                         end
-                    else
-                        found_signals[signal.unit_number] = {signal, distance}
                     end
-                    goto next_rail
+                    if halt(signal, kept) then goto next_rail end
                 end
             end
-            added_distance = fn.distance_mod(rail)
+            args.added_distance = fn.distance_mod(rail)
             for next_rail in librail.each_connected_rail(rail.entity, fn.adjust_direction(rd)) do
                 d = librail.chiral_directions[chirality == librail.get_rail_data(next_rail).chirality][rd]
+                args.rail = next_rail
+                args.rail_direction = fn.adjust_direction(d)
+                args.signal_direction = d
                 if nearest_only then
-                    signal, distance = librail.find_nearest_signal(next_rail, fn.adjust_direction(d), d, max_distance, added_distance)
+                    signal, distance = librail.find_nearest_signal(args)
                     if distance and (not best_distance or best_distance > distance) then
                         best_signal, best_distance = signal, distance
+                        args.max_distance = best_distance
                     end
                 else
-                    librail.find_signals_in_branch(next_rail, fn.adjust_direction(d), d, max_distance, added_distance, found_signals)
+                    librail.find_signals_in_branch(args)
                 end
             end
             ::next_rail::
         end
-        if nearest_only then return best_signal, best_distance end
-        return found_signals
+        if nearest_only then
+            best_signal.distance = best_distance
+            return best_signal
+        end
+        return args.found_signals
     end
-    function librail.find_nearest_signal_from_signal(signal, backwards, max_distance)
-        return librail._find_signal_from_signal_impl(signal, backwards, max_distance, true)
+    function librail.find_nearest_signal_from_signal(args)
+        return librail._find_signal_from_signal_impl(args, true)
     end
-    function librail.find_signals_in_branch_from_signal(signal, backwards, max_distance)
-        return librail._find_signal_from_signal_impl(signal, backwards, max_distance, false)
+    function librail.find_signals_in_branch_from_signal(args)
+        return librail._find_signal_from_signal_impl(args, false)
     end
 end
 
+
 do
-    local function _sort_by_distance(a, b) return a[2] < b[2] end
+    local function _sort_by_distance(a, b) return a.distance < b.distance end
 
     function librail.sort_found_signals(signals)
         local result
@@ -782,6 +891,313 @@ do
         table.sort(result, _sort_by_distance)
         return result
     end
+end
+
+
+function librail.find_all_rail_in_range(args, nearest_only)
+    local rail = args.rail
+    local rail_direction = args.rail_direction
+    local signal_direction = args.signal_direction or rail_direction
+    local max_distance = args.max_distance
+    local added_distance = args.added_distance
+    local signal_types = args.signal_types
+
+    local signals_reversed = rail_direction ~= signal_direction
+    local find_signal = signals_reversed and librail.find_last_signal or librail.find_first_signal
+
+    local keep = args.keep or _always_true
+    local halt = args.halt or _default_halt_function
+
+    if keep == true then keep = _always_true end
+    if halt == true then halt = _always_true end
+    local kept
+
+    -- Rails we've already visited: track unit_number and the distance at time of encounter.
+    -- We will revisit these if we encounter them at a shorter distance.
+    -- [direction][unit_number] -> distance
+    local visited = {
+        [rd.front] = {},
+        [rd.back] = {},
+    }
+
+    -- Rails we need to visit on the next pass.  Swaps places with an (empty) frontier each iteration.
+    -- Start with our first rail.
+    local unvisited = {{rail, rail_direction, librail.get_rail_data(rail), added_distance or 0}}   -- same format as frontier
+
+    -- Rails we will visit on this pass.
+    -- Starts empty because it gets swapped with unvisited immediately.
+    local frontier = {}  -- {{rail, direction, data, distance}}
+
+    -- Best signal we've found, and the distance it was at.  Or our other return value.
+    local best_signal, best_distance
+
+    local temp  -- Short term temporary variable to avoid multiple table dereferences/etc.
+    local unit_number
+    local data, distance
+    local next_data, next_direction
+    local signal
+
+    local found_signals = (not nearest_only) and (args.found_signals or {})
+    args.found_signals = found_signals
+
+    while unvisited[1] do
+        frontier, unvisited = unvisited, frontier
+        for i = 1, #frontier do
+            rail, rail_direction, data, distance = unpack(frontier[i])
+            unit_number = rail.unit_number
+            frontier[i] = nil   -- so frontier is empty for the next loop.
+
+            if best_distance and (best_distance < distance) then
+                goto next_frontier
+            end
+            temp = visited[rail_direction][unit_number]
+            if temp and temp < distance then
+                goto next_frontier
+            end
+            visited[rail_direction][unit_number] = distance
+
+            signal = find_signal(rail, signals_reversed and librail.opposite_direction[rail_direction] or rail_direction, data, signal_types)
+            if signal then
+                --temp = distance + ((signals_reversed and (data.length - signal.stops)) or signal.starts)
+
+                if signals_reversed then
+                    -- Going backwards, so concerned with where this signal 'starts'
+                    signal.distance = distance + (data.length - signal.starts)
+                else
+                    -- Going forward, so concerned with where trains stop
+                    signal.distance = distance + signal.stops
+                end
+
+                kept = keep(signal)
+                if kept then
+                    if nearest_only then
+                        if not best_distance or temp < best_distance then
+                            best_signal = signal
+                            best_distance = temp
+                        end
+                    else
+                        unit_number = signal.entity.unit_number
+                        if not found_signals[unit_number] or found_signals[unit_number].distance > signal.distance then
+                            found_signals[unit_number] = signal
+                        end
+                    end
+                end
+                -- If we have a signal here, nothing past this point is going to be closer... not this route anyways.
+                if halt(signal, kept) then goto next_frontier end
+            end
+            -- No signals, so connected rails to the next frontier.
+            distance = distance + data.length
+            if distance > max_distance then
+                goto next_frontier
+            end
+            for next_rail in librail.each_connected_rail(rail, rail_direction) do
+                next_data = librail.get_rail_data(next_rail)
+                next_direction = librail.chiral_directions[next_data.chirality == data.chirality][rail_direction]
+                temp = visited[next_direction][next_rail.unit_number]
+                if temp and temp < distance then goto next_frontier end
+                unvisited[#unvisited + 1] = {next_rail, next_direction, next_data, distance}
+            end
+            ::next_frontier::
+        end
+    end
+
+    if nearest_only then
+        best_signal.distance = best_distance
+        return best_signal
+    else
+        return found_signals
+    end
+end
+
+
+-- Adapted from math shown at:
+-- https://www.gamedev.net/articles/programming/general-and-gameplay-programming/2d-rotated-rectangle-collision-r2604/
+local area_to_rectangle, is_overlapping_rectangle
+do
+    local tau = 2*math.pi
+    local sin = math.sin
+    local cos = math.cos
+
+    function area_to_rectangle(box, t)
+        local x1 = box.left_top.x
+        local x2 = box.right_bottom.x
+        local y1 = box.left_top.y
+        local y2 = box.right_bottom.y
+
+        if not t then
+            -- No table to reuse, so create a new one.
+            t = {1, 2, 3, 4, 5, 6, 7, 8, xmin=nil, xmax=nil, ymin=nil, ymax=nil}
+        end
+
+        if (not box.orientation) or (box.orientation == 0) then
+            t[1], t[2] = x1, y1
+            t[3], t[4] = x2, y1
+            t[5], t[6] = x2, y2
+            t[7], t[8] = x1, y2
+            t.xmin, t.xmax = x1, x2
+            t.ymin, t.ymax = y1, y2
+            return t
+        end
+
+        local xo = (x1 + x2) / 2
+        local yo = (y1 + y2) / 2
+        x1, x2, y1, y2 = x1 - xo, x2 - xo, y1 - yo, y2 - yo
+
+        local theta = box.orientation * tau
+        local sin_theta = sin(theta)
+        local cos_theta = cos(theta)
+        local xmin, xmax, ymin, ymax
+
+        local function _r(i, x, y)
+            x, y = xo + x*cos_theta - y*sin_theta, yo + x*sin_theta + y*cos_theta
+            if i == 1 then
+                xmin, xmax = x, x
+                ymin, ymax = y, y
+            else
+                if xmin > x then xmin = x end
+                if ymin > y then ymin = y end
+                if xmax < x then xmax = x end
+                if ymax < y then ymax = y end
+            end
+            t[i], t[i+1] = x, y
+        end
+        _r(1, x1, y1)
+        _r(3, x2, y1)
+        _r(5, x2, y2)
+        _r(7, x1, y2)
+        t.xmin, t.xmax = xmin, xmax
+        t.ymin, t.ymax = ymin, ymax
+        return t
+    end
+
+    local function _extents(ax, ay, rect)
+        local n, x, y, px, py, dot, min, max
+        local divisor = ax*ax+ay*ay
+        for i = 1, 8, 2 do
+            --x, y = unpack(rect[i])
+            n = (rect[i]*ax + rect[i+1]*ay) / divisor
+            --px = n*ax
+            --py = n*ay
+            --dot = px*ax + py*ay
+            dot = n*ax*ax + n*ay*ay
+
+            if i == 1 then
+                min, max = dot, dot
+            else
+                if min > dot then min = dot end
+                if max < dot then max = dot end
+            end
+        end
+        return min, max
+    end
+
+    function is_overlapping_rectangle(a, b)
+        if not (a.xmax >= b.xmin and b.xmax >= a.xmin and a.ymax >= b.ymin and b.ymax >= a.ymin) then
+            return false
+        end
+
+        local function check_axis(ax, ay)
+            local amin, amax = _extents(ax, ay, a)
+            local bmin, bmax = _extents(ax, ay, b)
+            return (bmax >= amin and amax >= bmin)
+        end
+
+        return (
+                check_axis(a[3] - a[1], a[4] - a[2])
+                and check_axis(a[3] - a[5], a[4] - a[6])
+                and check_axis(b[3] - b[1], b[4] - b[2])
+                and check_axis(b[3] - b[5], b[4] - b[6])
+        )
+    end
+end
+librail.area_to_rectangle = area_to_rectangle
+librail.is_overlapping_rectangle = is_overlapping_rectangle
+
+
+
+--- Iterates over connecting rails until reaching the end of the tracks or any form of junction or crossing.
+-- @param rail Starting rail entity.
+-- @param rail_direction Direction to walk.
+-- @returns Iterator function which returns rail_entity, new_direction, distance_travelled for each call.
+function librail.walk_to_crossing(rail, rail_direction, length)
+    local real_iterator = librail.walk_to_branch(rail, rail_direction, length)
+    local rail, rail_direction, length, prev, revdir, temp, data
+    local args = {type=librail.rail_entity_types}
+
+    local rect1, rect2
+
+    local function check_box(box)
+        if not box then return false end
+        if (not box.orientation) or box.orientation == 0 then
+            args.area=box
+            return rail.surface.count_entities_filtered(args) > 1
+        end
+        rect1 = area_to_rectangle(box, rect1)
+        local area = args.area
+        if not area then
+            area = {left_top = {x=rect1.xmin, y=rect1.ymin}, right_bottom = {x=rect1.xmax, y=rect1.ymax}}
+            args.area = area
+        else
+            area.left_top.x = rect1.xmin
+            area.left_top.y = rect1.ymin
+            area.right_bottom.x = rect1.xmax
+            area.right_bottom.y = rect1.ymax
+        end
+        local ents = rail.surface.find_entities_filtered(args)
+        if #ents < 2 then return false end
+        for i = 1, #ents do
+            if ents[i] == rail then goto next_entity end
+            rect2 = area_to_rectangle(ents[i].bounding_box, rect2)
+            if is_overlapping_rectangle(rect1, rect2) then return true end
+            if not ents[i].secondary_bounding_box then return false end
+            rect2 = area_to_rectangle(ents[i].secondary_bounding_box, rect2)
+            if is_overlapping_rectangle(rect1, rect2) then return true end
+            ::next_entity::
+        end
+        return false
+    end
+
+    local function iterator()
+        rail, rail_direction, length, data  = real_iterator()
+        if not rail then
+            -- Ran out of rail, or there was a forward branch
+            return
+        elseif prev then
+            for temp in librail.each_connected_rail(rail, librail.opposite_direction[rail_direction]) do
+                if temp ~= prev then return end    -- Reverse branch.
+            end
+        end
+
+        local dir = rail.direction
+        if check_box(rail.bounding_box) then return end
+        if rail.secondary_bounding_box and check_box(rail.secondary_bounding_box) then return end
+        --if dir%2 == 0 or rail.type == 'curved-rail' then
+        --    if rail.surface.count_entities_filtered(args) > 1 then log("Overlap detected"); return end
+        --    if rail.secondary_bounding_box then
+        --        args.area=rail.secondary_bounding_box
+        --        if rail.surface.count_entities_filtered(args) > 1 then return log("Secondary overlap detected"); end
+        --    end
+        --else
+        --    -- Diagonal rail that's not actually colliding ends up colliding when we do this check, so it gets
+        --    -- special handling.
+        --    local ents = rail.surface.find_entities_filtered(args)
+        --    if #ents > 1 then
+        --        for i = 1, #ents do
+        --            if ents[i].type ~= 'straight-rail' then
+        --                log("curved-rail overlap detected")
+        --                return
+        --            end
+        --            local dir2 = ents[i].direction
+        --            if not (dir2 == dir or dir2+4 == dir or dir2-4 == dir) then
+        --                log("diagonal overlap detected")
+        --                return
+        --            end
+        --        end
+        --    end
+        --end
+        return rail, rail_direction, length, data
+    end
+    return iterator
 end
 
 
