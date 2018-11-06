@@ -81,14 +81,4 @@ autosignalling, any sort of branch will end signal placement.
 
 ### 0.1.0 (2018-11-05)
 
-* Possibly fixes a crash related to `revive_hack`.
-
-### 0.2.0 (2018-10-23)
-
-* Add support for accumulators, solar panels, and furnaces.
-* Properly detect and handle entities with burners instead of inadvertently clobbering their fuel state.
-* Skip entities that have a non-empty module inventory or a non-empty output inventory in addition to other checks.
-
-### 0.1.0 (2018-10-20)
- 
 * First release
