@@ -1,11 +1,11 @@
 {
     "name": "RailTools",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "title": "Rail Tools",
     "author": "Dewin",
     "contact": "https://github.com/dewiniaid/RailTools",
     "homepage": "https://github.com/dewiniaid/RailTools",
     "factorio_version": "0.16",
     "dependencies": ["base >= 0.16"],
-    "description": "WIP"
+    "description": "Automatic signal placement, distance display, error checking, and more."
 }

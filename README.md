@@ -78,7 +78,13 @@ existing signal.
 When creating an exit block, splits in the track will be followed; any other junctions will be ignored.  When 
 autosignalling, any sort of branch will end signal placement.
 
+### 0.1.1 (2018-11-06)
+  * Hovering over a signal now shows the distance to the closest next and previous signals.  This should be useful when
+    using long signal distances with the related signals being off-screen.
+  * Fixed a bug when placing signals would fail due to the presence of a signal ghost, which would cause another signal
+    ghost to be placed immediately after it.
+  * Signal ghosts now count as signals.
 
 ### 0.1.0 (2018-11-05)
 
-* First release
+  * First release

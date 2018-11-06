@@ -18,6 +18,26 @@ lookup.signalstatuscolor = {
     [lookup.signalstatus.neutral] = {r=1.0, g=1.0, b=0.1, a=1.0},
 }
 
+local function is_signal(entity)
+    return (
+        entity.type == 'rail-signal' or entity.type == 'rail-chain-signal'
+        or (
+            entity.type == 'entity-ghost' and (
+                entity.ghost_type == 'rail-signal' or entity.ghost_type == 'chain-signal'
+            )
+        )
+    )
+end
+
+local function is_chain_signal(entity)
+    return entity.type == 'rail-chain-signal' or (entity.type == 'entity-ghost' and entity.ghost_type == 'rail-chain-signal')
+end
+
+local function is_rail_signal(entity)
+    return entity.type == 'rail-signal' or (entity.type == 'entity-ghost' and entity.ghost_type == 'rail-signal')
+end
+
+
 local function on_selected_signal(entity, player)
     local train_length = player.mod_settings["RailTools_train-length"].value
     local max_distance = settings.global["RailTools_max-search-distance"].value
@@ -27,35 +47,43 @@ local function on_selected_signal(entity, player)
 
     local signalstatus = lookup.signalstatus
 
-    local signals = {}
-
     local function has_chain_signals(t)
         for _, v in pairs(t) do
-            if v.entity.type == 'rail-chain-signal' then return true end
+            if is_chain_signal(v.entity) then return true end
         end
         return false
     end
 
-    local args = {signal=entity, max_distance=max_distance}
+    local args = {signal=entity, max_distance=max_distance, signal_types=librail.signal_entity_types_with_ghosts}
     local ahead = librail.find_signals_in_branch_from_signal(args)
     args.backwards = true
     local behind = librail.find_signals_in_branch_from_signal(args)
     args.backwards = false
 
-    for _, t in pairs({ahead, behind}) do
-        for unit_number, signal in pairs(t) do
+    local nearest_behind, nearest_ahead
+    local global_status = signalstatus.good
+    local nearest, t
+    local signals = {}
+
+    for i = 1, 2 do
+        nearest = nil
+        for unit_number, signal in pairs(i == 1 and ahead or behind) do
             signal.status = signalstatus.neutral
             signals[unit_number] = signal
+            if not nearest or nearest.distance > signal.distance then
+                nearest = signal
+            end
         end
+        if i == 1 then nearest_ahead = nearest else nearest_behind = nearest end
     end
 
-    if entity.type == 'rail-chain-signal' then
+    if is_chain_signal(entity) then
         -- Chain signal lookahead
 
         -- If all ahead signals are rail signals, we can skip a redundant search.
         local rail_signals_ahead = ahead
         if has_chain_signals(ahead) then
-            args.signal_types = {"rail-signal"}
+            args.signal_types = {"rail-signal", "entity-ghost"}
             rail_signals_ahead = librail.find_signals_in_branch_from_signal(args)
         end
 
@@ -75,6 +103,7 @@ local function on_selected_signal(entity, player)
                 if dest.distance < train_length then
                     signals[n].status = signalstatus.bad
                     origin.status = signalstatus.bad
+                    global_status = signalstatus.bad
                 elseif signals[n] and signals[n].status ~= signalstatus.bad then
                     signals[n].status = signalstatus.good
                 end
@@ -89,12 +118,13 @@ local function on_selected_signal(entity, player)
             if signal.distance < train_length then
                 newstatus = signalstatus.bad
                 signals[n].status = signalstatus.bad
+                global_status = signalstatus.bad
             else
                 signals[n].status = signalstatus.good
             end
         end
         for n, signal in pairs(behind) do
-            if signal.entity.type == 'rail-chain-signal' and signals[n].status ~= signalstatus.bad then
+            if signals[n].status ~= signalstatus.bad and is_chain_signal(signal.entity) then
                 signals[n].status = newstatus
             end
         end
@@ -103,15 +133,16 @@ local function on_selected_signal(entity, player)
     -- Regardless of what kind of signal we are, we need to do lookbehind -- and potentially another lookbehind.
     -- chain---rail---[ANY]
     args.halt = true
-    args.keep = function(signal) return signal.entity.type == 'rail-chain-signal' end
+    args.keep = function(signal) return is_chain_signal(signal.entity) end
     args.backwards = true
 
     for n, signal in pairs(behind) do
-        if signal.distance < train_length and signal.entity.type == 'rail-signal' then
+        if signal.distance < train_length and is_rail_signal(signal.entity) then
             args.signal = signal.entity
             local chains = librail.find_signals_in_branch_from_signal(args)
             if next(chains) then
                 signals[n].status = signalstatus.bad
+                global_status = signalstatus.bad
                 for n, signal in pairs(chains) do
                     if signals[n] then
                         signals[n].signalstatus = bad
@@ -125,17 +156,17 @@ local function on_selected_signal(entity, player)
         end
     end
 
+    local text = {
+        name="RailTools_distance-text"
+    }
+    local fmt, ent
+    local hovering_entities = {}
+
     if next(signals) then
         local marker = {
             name="RailTools_bad-signal-indicator",
             force=player.force,
         }
-        local text = {
-            name="RailTools_distance-text"
-        }
-        local fmt, ent
-        local hovering_entities = {}
-
         for _, signal in pairs(signals) do
             text.position = signal.entity.position
             if signal.status == signalstatus.bad then
@@ -150,23 +181,41 @@ local function on_selected_signal(entity, player)
             ent.active = false
             hovering_entities[#hovering_entities + 1] = ent
         end
-
-        global.playerdata[player.index].hovering_entities = hovering_entities
     end
+
+    if nearest_behind or nearest_ahead then
+        text.color = lookup.signalstatuscolor[global_status]
+        text.position = entity.position
+        text.position.y = text.position.y + 0.5
+        if nearest_behind then
+            text.text = string.format("P: %d (%d)", nearest_behind.distance, (nearest_behind.distance + 1) / 7)
+            ent = entity.surface.create_entity(text)
+            ent.active = false
+            hovering_entities[#hovering_entities + 1] = ent
+            text.position.y = text.position.y + 0.5
+        end
+        if nearest_ahead then
+            text.text = string.format("N: %d (%d)", nearest_ahead.distance, (nearest_ahead.distance + 1) / 7)
+            ent = entity.surface.create_entity(text)
+            ent.active = false
+            hovering_entities[#hovering_entities + 1] = ent
+        end
+    end
+
+    global.playerdata[player.index].hovering_entities = hovering_entities
 end
 
 
-script.on_event(defines.events.on_selected_entity_changed, function(event)
-    -- fixme: put me in on_init so I'm always there.
+function on_selected_entity_changed(player)
     if not global.playerdata then
         global.playerdata = {}
     end
 
     -- Delete hovering entities.
-    local pdata = global.playerdata[event.player_index]
+    local pdata = global.playerdata[player.index]
     if not pdata then
         pdata = {}
-        global.playerdata[event.player_index] = pdata
+        global.playerdata[player.index] = pdata
     end
 
     local hovering_entities = pdata.hovering_entities
@@ -177,10 +226,15 @@ script.on_event(defines.events.on_selected_entity_changed, function(event)
         pdata.hovering_entities = nil
     end
 
-    local entity = game.players[event.player_index].selected
-    if entity and (entity.type == 'rail-signal' or entity.type == 'rail-chain-signal') then
-        on_selected_signal(entity, game.players[event.player_index])
+    local entity = player.selected
+    if entity and is_signal(entity) then
+        on_selected_signal(entity, game.players[player.index])
     end
+end
+
+
+script.on_event(defines.events.on_selected_entity_changed, function(event)
+    on_selected_entity_changed(game.players[event.player_index])
 end)
 
 
@@ -234,11 +288,15 @@ do
             if surface.can_place_entity(args) then
                 return not librail.is_signal_blocked(surface, args.position, args.direction)
             end
-            --log "obstructed"
             entity = surface.find_entity(name, args.position)
+            if not entity then
+                entity = surface.find_entity('entity-ghost', args.position)
+                if not entity or entity.ghost_name ~= name then return end
+            end
+            -- TODO: Check for ghosts
             return (
-                    entity and entity.direction == args.direction and entity.force == force
-                            and entity.position.x == args.position.x and entity.position.y == args.position.y
+                    entity.direction == args.direction and entity.force == force
+                    and entity.position.x == args.position.x and entity.position.y == args.position.y
             )
         end
 
@@ -294,6 +352,8 @@ do
         local unvisited = {}
         local next_data, next_direction, next_rail
 
+        local signal_types = librail.signal_entity_types_with_ghosts
+
         for i = 1, #origin_rails do
             origin_rail = origin_rails[i]
             data = origin_rail.rail_data
@@ -316,14 +376,8 @@ do
 
         end
 
-        --local find_nearest_signal_args = {
-        --    max_distance=train_length,
-        --    keep=function(signal) return signal.entity.type == 'rail-signal' end,
-        --    halt=true
-        --}
-        --
         local function visitor(rail, rail_direction, data, distance, target_distance)
-            local signal = librail.find_first_signal(rail, rail_direction, data)
+            local signal = librail.get_first_signal(rail, rail_direction, data, signal_types)
             for index, offset in pairs(data.signals[rail_direction]) do
                 if (not signal) or index < signal.index then
                     --log("visit unit=" .. rail.unit_number .. "; distance=" .. distance + offset.stops .. "; target=" .. target_distance)
@@ -361,7 +415,8 @@ do
             max_distance=max_distance,
             added_distance=distance,
             visit=visitor,
-            unvisited=unvisited
+            unvisited=unvisited,
+            signal_types=signal_types
         }
         blueprint.destroy()
     end
@@ -401,7 +456,7 @@ do
 
         for rail, rail_direction, _, data in iterator do
             --log(rail.unit_number)
-            signal = librail.find_first_signal(rail, rail_direction, data)
+            signal = librail.get_first_signal(rail, rail_direction, data)
             for index, offset in pairs(data.signals[rail_direction]) do
                 --log("visit unit=" .. rail.unit_number .. "; distance=" .. distance + offset.stops .. "; target=" .. target_distance .. "; rd=" .. rail_direction .. "; chi=" .. data.chirality)
                 if (not signal) or index < signal.index then
@@ -443,7 +498,7 @@ do
     script.on_event("RailTools_place-end-of-block-signal", function(event)
         local player = game.players[event.player_index]
 
-        if player.selected and player.selected.type == 'rail-signal' then
+        if player.selected and is_rail_signal(player.selected) then
             local train_length = player.mod_settings["RailTools_train-length"].value
             local max_distance = settings.global["RailTools_max-search-distance"].value
             if train_length > max_distance then
@@ -451,6 +506,7 @@ do
                 train_length = max_distance
             end
             place_signal_at_distance(player, player.selected, train_length, max_distance)
+            on_selected_entity_changed(player)
         end
     end)
 
@@ -458,18 +514,19 @@ do
     script.on_event("RailTools_signal-to-end-of-line", function(event)
         local player = game.players[event.player_index]
 
-        if player.selected and (player.selected.type == 'rail-signal' or player.selected.type == 'rail-chain-signal') then
+        if player.selected and is_signal(player.selected) then
             local train_length = player.mod_settings["RailTools_autoplace-interval"].value
             local max_distance = settings.global["RailTools_max-search-distance"].value
             if train_length > max_distance then
                 player.print({"RailTools.autoplace_interval_too_big_error"})
                 train_length = max_distance
             end
-            if player.selected.type == 'rail-chain-signal' and not librail.opposite_signal(player.selected) then return end
+            if is_chain_signal(player.selected) and not librail.opposite_signal(player.selected) then return end
             place_signals_until_branch(
                     player, player.selected, train_length, max_distance,
                     settings.global["RailTools_max-placed-signals"].value
             )
+            on_selected_entity_changed(player)
         end
     end)
 end

@@ -1,4 +1,17 @@
 ---------------------------------------------------------------------------------------------------
+Version: 0.1.1
+Date: 06. 11. 2018
+  Changes:
+    - Ghosts of rail signals are now treated as rail signals.
+    - The distance between the selected signal and the nearest signal in each direction is now displayed.
+
+  Bugfixes:
+    - When placing signals, existing ghosts will now be treated as a signal rather than an obstruction.  This means
+      that repeatedly trying to place signals from the same origin will no longer create consecutive ghosts immediately
+      after each other.
+    - Fix mod description in info.json
+
+---------------------------------------------------------------------------------------------------
 Version: 0.1.0
 Date: 05. 11. 2018
   Changes:
