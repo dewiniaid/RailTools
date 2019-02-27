@@ -1,2 +1,32 @@
 require 'prototypes/entities'
 require 'prototypes/inputs'
+
+--
+--local function spiral(x, y)
+--    local dx, dy = 1, 0
+--    local turns = 0
+--    local travelled = 0
+--    local target = 0
+--    local function iterator()
+--        if travelled == target then
+--            dx, dy = -dy, dx    -- 90 degree clockwise rotation
+--            if turns%2 == 0 then
+--                target = target + 1
+--            end
+--            turns = turns + 1
+--            travelled = 0
+--            if turns == 1 then
+--                return x, y, 0, 1
+--            end
+--        end
+--        x, y = x+dx, y+dy
+--        travelled = travelled + 1
+--
+--        return x, y, travelled, turns
+--    end
+--    return iterator
+--end
+--
+--for x, y in spiral(origin_x, origin_y) do
+--    -- ...
+--end

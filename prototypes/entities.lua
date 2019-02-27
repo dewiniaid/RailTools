@@ -36,13 +36,13 @@ data:extend {
         --open_sound = { filename = "__base__/sound/wooden-chest-open.ogg" },
         --close_sound = { filename = "__base__/sound/wooden-chest-close.ogg" },
         --vehicle_impact_sound = { filename = "__base__/sound/car-wood-impact.ogg", volume = 1.0 },
-        picture = {
-            filename = "__base__/graphics/entity/wooden-chest/wooden-chest.png",
-            priority = "extra-high",
-            width = 46,
-            height = 33,
-            shift = { 0.25, 0.015625 }
-        },
+        picture = data.raw.container["wooden-chest"].picture,
+        --{
+        --    filename = "__base__/graphics/entity/wooden-chest/wooden-chest.png",
+        --    priority = "extra-high",
+        --    width = 1,
+        --    height = 1,
+        --},
         --circuit_wire_connection_point = circuit_connector_definitions["chest"].points,
         --circuit_connector_sprites = circuit_connector_definitions["chest"].sprites,
         --circuit_wire_max_distance = default_circuit_wire_max_distance

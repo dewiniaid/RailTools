@@ -78,6 +78,9 @@ existing signal.
 When creating an exit block, splits in the track will be followed; any other junctions will be ignored.  When 
 autosignalling, any sort of branch will end signal placement.
 
+### 0.1.2 (2019-02-26)
+  * Preliminary update for Factorio 0.17.
+
 ### 0.1.1 (2018-11-06)
   * Hovering over a signal now shows the distance to the closest next and previous signals.  This should be useful when
     using long signal distances with the related signals being off-screen.
