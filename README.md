@@ -63,7 +63,7 @@ Pressing `SHIFT+BACKSLASH` on a rail signal will follow a rail line until it rea
 dead end and places signals periodically.  This spacing can be configured in `Mod Settings -> Per Player`.  It is not
 the same as your train length.
 
-If you are using bidirectional track, pressing `SHIFT+BACKSLASH` on a chain signals will place pairs of chain signals
+If you are using bidirectional track, pressing `SHIFT+BACKSLASH` on a chain signal will place pairs of chain signals
 along the track.  
 
 ## Placement rules
@@ -77,6 +77,9 @@ existing signal.
 
 When creating an exit block, splits in the track will be followed; any other junctions will be ignored.  When 
 autosignalling, any sort of branch will end signal placement.
+
+### 0.2.0 (2020-31-01)
+  * **Updated for Factorio 0.18.**
 
 ### 0.1.3 (2020-31-01)
   * Update to use LuaRendering objects rather than entities.  Among other things, this means that displayed text for
