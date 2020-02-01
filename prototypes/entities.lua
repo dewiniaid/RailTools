@@ -1,25 +1,34 @@
-local distance_text = table.deepcopy(data.raw['flying-text']['flying-text'])
-distance_text.name = 'RailTools_distance-text'
-distance_text.speed = 0
-distance_text.text_alignment = 'center'
-
+--local distance_text = table.deepcopy(data.raw['flying-text']['flying-text'])
+--distance_text.name = 'RailTools_distance-text'
+--distance_text.speed = 0
+--distance_text.text_alignment = 'center'
+--
 data:extend {
-    distance_text,
+    --distance_text,
+    --{
+    --    type = "simple-entity",
+    --    name = "RailTools_bad-signal-indicator",
+    --    flags = { "not-on-map", "not-blueprintable", "not-deconstructable", "not-flammable" },
+    --    render_layer = "selection-box",
+    --    picture = {
+    --        width = 64,
+    --        height = 64,
+    --        scale = 0.5,
+    --        filename = "__core__/graphics/arrows/underground-lines-remove.png",
+    --    },
+    --    collision_box = nil,
+    --    selectable_in_game = false,
+    --    tile_width = 1,
+    --    tile_height = 1,
+    --},
     {
-        type = "simple-entity",
-        name = "RailTools_bad-signal-indicator",
-        flags = { "not-on-map", "not-blueprintable", "not-deconstructable", "not-flammable" },
-        render_layer = "selection-box",
-        picture = {
-            width = 64,
-            height = 64,
-            scale = 0.5,
-            filename = "__core__/graphics/arrows/underground-lines-remove.png",
-        },
-        collision_box = nil,
-        selectable_in_game = false,
-        tile_width = 1,
-        tile_height = 1,
+        type = "sprite",
+        name = "RailTools_bad-signal-sprite",
+        priority = "extra-high",
+        width = 64,
+        height = 64,
+        scale = 0.5,
+        filename = "__core__/graphics/arrows/underground-lines-remove.png",
     },
     {
         type = "container",

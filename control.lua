@@ -18,6 +18,12 @@ lookup.signalstatuscolor = {
     [lookup.signalstatus.neutral] = {r=1.0, g=1.0, b=0.1, a=1.0},
 }
 
+lookup.linecolor = {
+    [lookup.signalstatus.good]    = { r=0.7, g=0.7, b=0.7, a=0.15 },
+    [lookup.signalstatus.neutral] = { r=0.7, g=0.7, b=0.7, a=0.15 },
+    [lookup.signalstatus.bad]     = { r=1.0, g=0.0, b=0.0, a=0.75 },
+}
+
 local function is_signal(entity)
     return (
         entity.type == 'rail-signal' or entity.type == 'rail-chain-signal'
@@ -46,6 +52,8 @@ local function on_selected_signal(entity, player)
     end
 
     local signalstatus = lookup.signalstatus
+    local signalstatuscolor = lookup.signalstatuscolor
+    local linecolor = lookup.linecolor
 
     local function has_chain_signals(t)
         for _, v in pairs(t) do
@@ -156,85 +164,121 @@ local function on_selected_signal(entity, player)
         end
     end
 
-    local text = {
-        name="RailTools_distance-text"
+    local render_players = {player}
+    local text_string = {"", nil}
+    local text_args = {
+        text = text_string,
+        target_offset={0, 0.5},  -- Offset by 0.5 Y
+        players=render_players,  -- Render to current player
+        alignment='center',
+        scale_with_zoom=true,    -- No tiny text for zoomed out rail construction
+        surface=player.surface
     }
+
     local fmt, ent
-    local hovering_entities = {}
+    local hovering_renders = {}
 
     if next(signals) then
-        local marker = {
-            name="RailTools_bad-signal-indicator",
-            force=player.force,
+        local box_args = {
+            sprite="RailTools_bad-signal-sprite",
+            surface=player.surface,
+            players=render_players,
         }
+        --
+        --local line_args = {
+        --    surface=player.surface,
+        --    players=render_players,
+        --    from=entity,
+        --    width=1
+        --}
+        --
+        --local circle_args = {
+        --    surface=player.surface,
+        --    players=render_players,
+        --    radius=0.25,
+        --    filled=true
+        --}
+
+
         for _, signal in pairs(signals) do
-            text.position = signal.entity.position
             if signal.status == signalstatus.bad then
-                marker.position = text.position
-                hovering_entities[#hovering_entities + 1] = entity.surface.create_entity(marker)
+                box_args.target = signal.entity
+                hovering_renders[#hovering_renders + 1] = rendering.draw_sprite(box_args)
             end
             fmt = signal.is_added_distance and "(+%d (%d))" or "%d (%d)"
-            text.color = lookup.signalstatuscolor[signal.status]
-            text.text = string.format(fmt, signal.distance, (1 + signal.distance) / 7)
-            text.position.y = text.position.y + 0.5
-            ent = entity.surface.create_entity(text)
-            ent.active = false
-            hovering_entities[#hovering_entities + 1] = ent
+            text_string[2] = string.format(fmt, signal.distance, (1 + signal.distance) / 7)
+            text_args.target = signal.entity
+            text_args.color = signalstatuscolor[signal.status]
+            hovering_renders[#hovering_renders + 1] = rendering.draw_text(text_args)
+
+            --line_args.color = linecolor[signal.status]
+            --line_args.to = signal.entity
+            --circle_args.color = linecolor[signal.status]
+            --circle_args.target = signal.entity
+            --
+            --hovering_renders[#hovering_renders + 1] = rendering.draw_line(line_args)
+            --hovering_renders[#hovering_renders + 1] = rendering.draw_circle(circle_args)
         end
     end
 
     if nearest_behind or nearest_ahead then
-        text.color = lookup.signalstatuscolor[global_status]
-        text.position = entity.position
-        text.position.y = text.position.y + 0.5
+        text_args.color = signalstatuscolor[global_status]
+        text_args.target = entity
         if nearest_behind then
-            text.text = string.format("P: %d (%d)", nearest_behind.distance, (nearest_behind.distance + 1) / 7)
-            ent = entity.surface.create_entity(text)
-            ent.active = false
-            hovering_entities[#hovering_entities + 1] = ent
-            text.position.y = text.position.y + 0.5
+            text_string[2] = string.format("P: %d (%d)", nearest_behind.distance, (nearest_behind.distance + 1) / 7)
+            --ent = entity.surface.create_entity(text)
+            --ent.active = false
+            hovering_renders[#hovering_renders + 1] = rendering.draw_text(text_args)
+            text_args.target_offset[2] = text_args.target_offset[2] + 0.5
         end
         if nearest_ahead then
-            text.text = string.format("N: %d (%d)", nearest_ahead.distance, (nearest_ahead.distance + 1) / 7)
-            ent = entity.surface.create_entity(text)
-            ent.active = false
-            hovering_entities[#hovering_entities + 1] = ent
+            text_string[2]  = string.format("N: %d (%d)", nearest_ahead.distance, (nearest_ahead.distance + 1) / 7)
+            --ent = entity.surface.create_entity(text)
+            --ent.active = false
+            hovering_renders[#hovering_renders + 1] = ent
         end
     end
-
-    global.playerdata[player.index].hovering_entities = hovering_entities
+    if not global.playerdata[player.index] then
+        global.playerdata[player.index] = {}
+    end
+    global.playerdata[player.index].hovering_renders = hovering_renders
 end
 
+local function clear_hovers(player_index)
+    local pdata = global.playerdata and global.playerdata[player_index]
+    if not pdata then
+        return
+    end
+    local hovers = pdata.hovering_renders
+    if hovers then
+        for i = 1, #hovers do
+            rendering.destroy(hovers[i])
+        end
+        pdata.hovering_renders = nil
+    end
+end
 
 function on_selected_entity_changed(player)
-    if not global.playerdata then
-        global.playerdata = {}
-    end
-
-    -- Delete hovering entities.
-    local pdata = global.playerdata[player.index]
-    if not pdata then
-        pdata = {}
-        global.playerdata[player.index] = pdata
-    end
-
-    local hovering_entities = pdata.hovering_entities
-    if hovering_entities then
-        for i = 1, #hovering_entities do
-            hovering_entities[i].destroy()
-        end
-        pdata.hovering_entities = nil
-    end
+    clear_hovers(player.index)
 
     local entity = player.selected
     if entity and is_signal(entity) then
+        if not global.playerdata then
+            global.playerdata = {}
+        end
         on_selected_signal(entity, game.players[player.index])
     end
 end
 
-
 script.on_event(defines.events.on_selected_entity_changed, function(event)
     on_selected_entity_changed(game.players[event.player_index])
+end)
+
+script.on_event({defines.events.on_player_left_game, defines.events.on_player_removed}, function(event)
+    if global.playerdata then
+        clear_hovers(event.player_index)
+        global.playerdata[event.player_index] = nil
+    end
 end)
 
 
